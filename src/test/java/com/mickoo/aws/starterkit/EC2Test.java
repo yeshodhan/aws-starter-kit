@@ -11,7 +11,7 @@ import java.util.logging.Logger;
 /**
  * aws-starter-kit
  *
- * @author Yeshodhan Kulkarni (yeshodhan.kulkarni@tp-link.com)
+ * @author Yeshodhan Kulkarni (yeshodhan.kulkarni@gmail.com)
  * @version 1.0
  * @since 1.1
  */

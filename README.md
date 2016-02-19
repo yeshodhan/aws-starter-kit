@@ -3,7 +3,7 @@ Starter Kit demonstrating how to get started with AWS Java SDK
 
 ## Installation
 
-Clone the repository. Open terminal. Change directory to <PROJECT_ROOT>, and run the below:
+Clone the repository. Open terminal. Change directory to PROJECT_ROOT, and run the below:
 
 ```bash
 cd <PROJECT_ROOT>

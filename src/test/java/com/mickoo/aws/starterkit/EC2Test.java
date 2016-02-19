@@ -70,6 +70,24 @@ public class EC2Test {
         logger.info("Public DNS: " + instance.getPublicDnsName());
         logger.info("Public IP: " + instance.getPublicIpAddress());
 
+        //allocate a new elastic ip
+        String allocationId = ec2.allocateElasticIP();
+
+        //associate elastic ip with instace
+        String associationId = ec2.associateElasticIP(instance.getInstanceId(), allocationId);
+
+        //refresh instance data
+        instance = ec2.getInstance(instance.getInstanceId());
+
+        //check for new public ip address
+        logger.info("New Public IP: " + instance.getPublicIpAddress());
+
+        //disassociate elastic ip
+        ec2.disassociateElasticIP(associationId);
+
+        //release elastic IP
+        ec2.releaseElasticIP(allocationId);
+
         //stop instance
         if(isStarted) ec2.stopInstance(instance.getInstanceId());
 

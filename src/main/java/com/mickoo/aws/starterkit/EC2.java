@@ -27,10 +27,10 @@ public class EC2 {
 
     private AmazonEC2Client ec2Client;
 
-    private static final String DEFAULT_CREDENTAIL_PROFILE = "default";
+    private static final String DEFAULT_CREDENTIAL_PROFILE = "default";
 
     public EC2(String region) {
-        this(region, DEFAULT_CREDENTAIL_PROFILE);
+        this(region, DEFAULT_CREDENTIAL_PROFILE);
     }
 
     public EC2(String region, String credentialProfile) {
@@ -223,13 +223,38 @@ public class EC2 {
     }
 
     //creates a new elastic IP in the VPC
-    public AllocateAddressResult allocateElasticIP(AllocateAddressRequest allocateAddressRequest) {
-        return ec2Client.allocateAddress(allocateAddressRequest);
+    public String allocateElasticIP() {
+        AllocateAddressRequest allocateAddressRequest = new AllocateAddressRequest();
+        allocateAddressRequest.setDomain(DomainType.Vpc);
+        AllocateAddressResult result = ec2Client.allocateAddress(allocateAddressRequest);
+        logger.info("New Elastic IP Allocated. Allocation Id: " + result.getAllocationId() + " Public IP: " + result.getPublicIp());
+        return result.getAllocationId();
     }
 
     //associates the elastic ip to an instance in vpc
-    public AssociateAddressResult associateElasticIP(AssociateAddressRequest associateAddressRequest) {
-        return ec2Client.associateAddress(associateAddressRequest);
+    public String associateElasticIP(String instanceId, String allocationId) {
+        AssociateAddressRequest associateAddressRequest = new AssociateAddressRequest();
+        associateAddressRequest.setInstanceId(instanceId);
+        associateAddressRequest.setAllocationId(allocationId);
+        AssociateAddressResult result = ec2Client.associateAddress(associateAddressRequest);
+        logger.info("Elastic IP Associated. Association Id: " + result.getAssociationId());
+        return result.getAssociationId();
+    }
+
+    //disassociates an elastic ip from an instance in vpc
+    public void disassociateElasticIP(String associationId) {
+        DisassociateAddressRequest disassociateAddressRequest = new DisassociateAddressRequest();
+        disassociateAddressRequest.setAssociationId(associationId);
+        ec2Client.disassociateAddress(disassociateAddressRequest);
+        logger.info("Elastic IP Disassociated. Association Id: " + associationId);
+    }
+
+    //releases the elastic ip address
+    public void releaseElasticIP(String allocationId) {
+        ReleaseAddressRequest releaseAddressRequest = new ReleaseAddressRequest();
+        releaseAddressRequest.setAllocationId(allocationId);
+        ec2Client.releaseAddress(releaseAddressRequest);
+        logger.info("Elastic IP Released. Allocation Id: " + allocationId );
     }
 
     public Instance getInstance(String instanceId) {

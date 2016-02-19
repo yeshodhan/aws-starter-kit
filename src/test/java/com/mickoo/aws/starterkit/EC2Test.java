@@ -3,9 +3,13 @@ package com.mickoo.aws.starterkit;
 import com.amazonaws.regions.Regions;
 import com.amazonaws.services.ec2.model.*;
 import org.apache.commons.io.FileUtils;
+import org.junit.Test;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -19,7 +23,10 @@ public class EC2Test {
 
     private static final Logger logger = Logger.getLogger(EC2Test.class.getName());
 
+    private static final String DEFAULT_SECURITY_GROUP = "default";
+
     private static final String MY_SECURITY_GROUP = "my-security-group";
+    private static final String MY_SECURITY_GROUP_DESC = "My Security Group description";
 
     private static final Regions MY_REGION = Regions.US_WEST_2;
 
@@ -34,39 +41,98 @@ public class EC2Test {
     private EC2 ec2;
 
     public EC2Test() {
-        ec2 = new EC2(MY_REGION.getName());
+
+        String accessKeyId = System.getProperty("aws.accessKeyId", null);
+        String secretAccessKey = System.getProperty("aws.secretAccessKey", null);
+
+        if(accessKeyId != null && secretAccessKey != null) {
+            ec2 = new EC2(MY_REGION.getName(), accessKeyId, secretAccessKey);
+        } else {
+            ec2 = new EC2(MY_REGION.getName());
+        }
+
     }
 
-
-    public void basic() throws IOException {
-
-        //create security group
-        SecurityGroup securityGroup = createSecurityGroup();
-
-        //create key pair
-        KeyPairInfo keyPairInfo = createKeyPair();
+    @Test
+    public void testInstanceLifeCycle() throws Exception {
 
         //launch an instance
         Instance instance = launchInstance();
 
-        String instanceId = instance.getInstanceId();
-
         //start an instance
-        boolean isStarted = startInstance(instanceId);
+        boolean isStarted = ec2.startInstance(instance.getInstanceId());
+
+        //get the instance again
+        instance = ec2.getInstance(instance.getInstanceId());
+
+        logger.info("Private DNS: " + instance.getPrivateDnsName());
+        logger.info("Private IP: " + instance.getPrivateDnsName());
+        logger.info("Public DNS: " + instance.getPublicDnsName());
+        logger.info("Public IP: " + instance.getPublicIpAddress());
 
         //stop instance
-        if(isStarted) stopInstance(instanceId);
+        if(isStarted) ec2.stopInstance(instance.getInstanceId());
 
     }
 
-    private SecurityGroup createSecurityGroup() {
-        if(!ec2.doesSecurityGroupExists(MY_SECURITY_GROUP)) {
-            return ec2.getSecurityGroup(MY_SECURITY_GROUP);
-        }
+    private Instance launchInstance() throws InterruptedException, IOException {
+
+        //get default vpc. if not, get any available vpc.
+        Vpc availableVPC = ec2.getFirstAvailableVPC();
+        if(availableVPC == null) throw new RuntimeException("Default VPC not found.");
+
+        //create the security group in the vpc
+        SecurityGroup securityGroup = createSecurityGroup(availableVPC.getVpcId());
+        if(securityGroup == null) throw new RuntimeException("Security group must exist");
+
+        //create a key pair
+        KeyPairInfo keyPairInfo = createKeyPair();
+
+        //get all subnets from the vpc
+        List<Subnet> subnets = ec2.getSubnets(availableVPC.getVpcId());
+        if(subnets == null || subnets.size() == 0) throw new RuntimeException("No subnets found.");
+
+        //select a random subnet to launch the instance
+        Subnet someRandomSubnet = subnets.get(0);
+
+
+        RunInstancesRequest runInstancesRequest = new RunInstancesRequest();
+
+        //any ami id
+        runInstancesRequest.setImageId(MY_AMI_ID);
+
+        //instance type
+        runInstancesRequest.setInstanceType(MY_INSTANCE_TYPE);
+
+        //set no. of instances
+        runInstancesRequest.setMinCount(1);
+        runInstancesRequest.setMaxCount(1);
+
+        //specify the key pair name
+        runInstancesRequest.setKeyName(keyPairInfo.getKeyName());
+
+        //make sure to specify securityGroupIds and not groupName
+        List<String> securityGroupsIds = new ArrayList<String>();
+        securityGroupsIds.add(securityGroup.getGroupId());
+        runInstancesRequest.setSecurityGroupIds(securityGroupsIds);
+
+        //set subnet id
+        runInstancesRequest.setSubnetId(someRandomSubnet.getSubnetId());
+
+        //launch instance
+        return ec2.launchInstance(runInstancesRequest);
+    }
+
+    private SecurityGroup createSecurityGroup(String vpcId) throws InterruptedException {
+        SecurityGroup securityGroup = ec2.getSecurityGroup(MY_SECURITY_GROUP);
+        if(securityGroup != null) return securityGroup;
         CreateSecurityGroupRequest securityGroupRequest = new CreateSecurityGroupRequest();
         securityGroupRequest.setGroupName(MY_SECURITY_GROUP);
+        securityGroupRequest.setDescription(MY_SECURITY_GROUP_DESC);
+        securityGroupRequest.setVpcId(vpcId);
         CreateSecurityGroupResult createSecurityGroupResult = ec2.createSecurityGroup(securityGroupRequest);
         if(createSecurityGroupResult == null) return null;
+        Thread.sleep(5000);
         return ec2.getSecurityGroup(createSecurityGroupResult.getGroupId());
     }
 
@@ -74,35 +140,20 @@ public class EC2Test {
         KeyPairInfo keyPairInfo = ec2.getKeyPairInfo(MY_KEY_PAIR);
         if(keyPairInfo == null) {
             KeyPair keyPair = ec2.createKeyPair(MY_KEY_PAIR);
-            //persist this key pair somewhere
-            FileUtils.write(new File("~/.ssh/"+MY_KEY_PAIR+".pem"), keyPair.getKeyMaterial());
+            try{
+                //persist this key pair somewhere
+                FileUtils.write(new File("~/.ssh/" + MY_KEY_PAIR + ".pem"), keyPair.getKeyMaterial());
+            } catch (Exception e){
+                logger.log(Level.SEVERE, e.getMessage(), e);
+            }
             logger.info("New Key Pair Created: " + keyPair.getKeyFingerprint());
             logger.info("PEM: ");
             logger.info(keyPair.getKeyMaterial());
+            keyPairInfo = ec2.getKeyPairInfo(MY_KEY_PAIR);
         }
         return keyPairInfo;
     }
 
-    private Instance launchInstance() {
 
-        RunInstancesRequest runInstancesRequest = new RunInstancesRequest();
-
-        runInstancesRequest.withImageId(MY_AMI_ID)
-        .withInstanceType(MY_INSTANCE_TYPE)
-        .withMinCount(0)
-        .withMaxCount(1)
-        .withKeyName(MY_KEY_PAIR)
-        .withSecurityGroups(MY_SECURITY_GROUP);
-
-        return ec2.launchInstance(runInstancesRequest);
-    }
-
-    private boolean startInstance(String instanceId) {
-        return ec2.startInstance(instanceId);
-    }
-
-    private boolean stopInstance(String instanceId) {
-        return ec2.stopInstance(instanceId);
-    }
 
 }

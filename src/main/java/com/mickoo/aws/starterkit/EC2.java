@@ -9,6 +9,7 @@ import com.amazonaws.services.ec2.util.SecurityGroupUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 
 /**
  * aws-starter-kit
@@ -19,7 +20,11 @@ import java.util.List;
  */
 public class EC2 {
 
-    AmazonEC2Client ec2Client;
+    private static final Logger logger = Logger.getLogger(EC2.class.getName());
+
+    private static final int MAX_RETRIES = 50;
+
+    private AmazonEC2Client ec2Client;
 
     private static final String DEFAULT_CREDENTAIL_PROFILE = "default";
 
@@ -50,25 +55,27 @@ public class EC2 {
 
     //start an instance
     public boolean startInstance(String instanceId) {
-        StartInstancesRequest startInstancesRequest = new StartInstancesRequest();
-        List<String> instances = new ArrayList<String>();
-        instances.add(instanceId);
-        startInstancesRequest.setInstanceIds(instances);
-        StartInstancesResult instancesResult = ec2Client.startInstances(startInstancesRequest);
-        if(instancesResult == null) return false;
-        if(instancesResult.getStartingInstances() == null) return false;
-        if(instancesResult.getStartingInstances().size() == 0) return false;
-        InstanceStateChange stateChange = instancesResult.getStartingInstances().get(0);
-        InstanceState instanceState = stateChange.getCurrentState();
-        if(isRunning(instanceState)) return true;
+        logger.info("Starting instance: " + instanceId);
 
-        int MAX_RETRIES = 50;
+        Instance instance = getInstance(instanceId);
+
+        if(isStopped(instance.getState())) {
+            StartInstancesRequest startInstancesRequest = new StartInstancesRequest();
+            List<String> instances = new ArrayList<String>();
+            instances.add(instanceId);
+            startInstancesRequest.setInstanceIds(instances);
+            StartInstancesResult instancesResult = ec2Client.startInstances(startInstancesRequest);
+            if(instancesResult == null) return false;
+            if(instancesResult.getStartingInstances() == null) return false;
+            if(instancesResult.getStartingInstances().size() == 0) return false;
+        }
 
         int retryCount = 0;
         while(retryCount < MAX_RETRIES) {
-            Instance instance = getInstance(instanceId);
+            instance = getInstance(instanceId);
             if(isRunning(instance.getState())){
-                break;
+                logger.info("Instance started: " + instanceId);
+                return true;
             }
             try {
                 Thread.sleep(5000);
@@ -81,18 +88,9 @@ public class EC2 {
         return false;
     }
 
-    private boolean isRunning(InstanceState instanceState) {
-        if(instanceState != null && "running".equals(instanceState.getName())) return true;
-        return false;
-    }
-
-    private boolean isStopped(InstanceState instanceState) {
-        if(instanceState != null && "stopped".equals(instanceState.getName())) return true;
-        return false;
-    }
-
     //stop an instance
     public boolean stopInstance(String instanceId) {
+
         StopInstancesRequest stopInstancesRequest = new StopInstancesRequest();
         List<String> instances=  new ArrayList<String>();
         instances.add(instanceId);
@@ -106,13 +104,12 @@ public class EC2 {
         InstanceState instanceState = stateChange.getCurrentState();
         if(isStopped(instanceState)) return true;
 
-        int MAX_RETRIES = 50;
-
         int retryCount = 0;
         while(retryCount < MAX_RETRIES) {
             Instance instance = getInstance(instanceId);
             if(isStopped(instance.getState())){
-                break;
+                logger.info("Instance stopped: " + instanceId);
+                return true;
             }
             try {
                 Thread.sleep(5000);
@@ -126,13 +123,34 @@ public class EC2 {
 
     }
 
+    private boolean isPending(InstanceState instanceState) {
+        if(instanceState == null) return false;
+        logger.info("Instance State: " + instanceState.getName());
+        if("pending".equals(instanceState.getName())) return true;
+        return false;
+    }
+
+    private boolean isRunning(InstanceState instanceState) {
+        if(instanceState == null) return false;
+        logger.info("Instance State: " + instanceState.getName());
+        if("running".equals(instanceState.getName())) return true;
+        return false;
+    }
+
+    private boolean isStopped(InstanceState instanceState) {
+        if(instanceState == null) return false;
+        logger.info("Instance State: " + instanceState.getName());
+        if("stopped".equals(instanceState.getName())) return true;
+        return false;
+    }
+
     //create security group
     public CreateSecurityGroupResult createSecurityGroup(CreateSecurityGroupRequest securityGroupRequest) {
         return ec2Client.createSecurityGroup(securityGroupRequest);
     }
 
-    public boolean doesSecurityGroupExists(String securityGroupName) {
-        return SecurityGroupUtils.doesSecurityGroupExist(ec2Client, securityGroupName);
+    public boolean doesSecurityGroupExist(String securityGroupId) {
+        return SecurityGroupUtils.doesSecurityGroupExist(ec2Client, securityGroupId);
     }
 
     public KeyPair createKeyPair(String name) {
@@ -147,7 +165,13 @@ public class EC2 {
         List<String> keys = new ArrayList<String>();
         keys.add(keyName);
         describeKeyPairsRequest.setKeyNames(keys);
-        DescribeKeyPairsResult describeKeyPairsResult = ec2Client.describeKeyPairs(describeKeyPairsRequest);
+        DescribeKeyPairsResult describeKeyPairsResult = null;
+        try {
+            describeKeyPairsResult = ec2Client.describeKeyPairs(describeKeyPairsRequest);
+        } catch (Exception e){
+            logger.info("Key Pair "+ keyName +" does not exist.");
+            return null;
+        }
         if(describeKeyPairsResult == null) return null;
         if(describeKeyPairsResult.getKeyPairs() == null) return null;
         if(describeKeyPairsResult.getKeyPairs().size() == 0) return null;
@@ -155,13 +179,13 @@ public class EC2 {
     }
 
     public SecurityGroup getSecurityGroup(String groupName) {
-        DescribeSecurityGroupsRequest describeSecurityGroupsRequest = new DescribeSecurityGroupsRequest();
-        List<String> groups = new ArrayList<String>();
-        groups.add(groupName);
-        describeSecurityGroupsRequest.setGroupNames(groups);
-        DescribeSecurityGroupsResult describeSecurityGroupsResult = ec2Client.describeSecurityGroups(describeSecurityGroupsRequest);
-        if(describeSecurityGroupsResult != null && describeSecurityGroupsResult.getSecurityGroups() != null && describeSecurityGroupsResult.getSecurityGroups().size() > 0) {
-            return describeSecurityGroupsResult.getSecurityGroups().get(0);
+        DescribeSecurityGroupsResult describeSecurityGroupsResult = ec2Client.describeSecurityGroups();
+        if(describeSecurityGroupsResult == null) return null;
+        if(describeSecurityGroupsResult.getSecurityGroups() == null || describeSecurityGroupsResult.getSecurityGroups().size() == 0) return null;
+        for(SecurityGroup securityGroup : describeSecurityGroupsResult.getSecurityGroups()) {
+            if(groupName.equals(securityGroup.getGroupName())) {
+                return securityGroup;
+            }
         }
         return null;
     }
@@ -191,12 +215,67 @@ public class EC2 {
         List<String> instances = new ArrayList<String>();
         instances.add(instanceId);
         describeInstancesRequest.setInstanceIds(instances);
-        DescribeInstancesResult result = ec2Client.describeInstances(describeInstancesRequest);
+        DescribeInstancesResult result = null;
+        try {
+            result = ec2Client.describeInstances(describeInstancesRequest);
+        } catch (Exception e){
+            logger.info("Instance Id: "+ instanceId +" does not exist.");
+            return null;
+        }
         if(result == null || result.getReservations().size() == 0) return null;
         Reservation reservation = result.getReservations().get(0);
         if(reservation == null || reservation.getInstances().size() == 0) return null;
-        Instance instance = reservation.getInstances().get(0);
-        return instance;
+        return reservation.getInstances().get(0);
+    }
+
+    public Vpc getVPC(String vpcId) {
+        DescribeVpcsRequest describeVpcsRequest = new DescribeVpcsRequest();
+        List<String> vpcs = new ArrayList<String>();
+        vpcs.add(vpcId);
+        describeVpcsRequest.setVpcIds(vpcs);
+        DescribeVpcsResult result = null;
+        try{
+            result = ec2Client.describeVpcs(describeVpcsRequest);
+        } catch (Exception e){
+            logger.info("Vpc Id: "+ vpcId +" does not exist.");
+            return null;
+        }
+        if(result == null) return null;
+        if(result.getVpcs() == null || result.getVpcs().size() == 0) return null;
+        return result.getVpcs().get(0);
+    }
+
+    public Vpc getDefaultVPC() {
+        DescribeVpcsResult result = ec2Client.describeVpcs();
+        if(result == null) return null;
+        if(result.getVpcs() == null || result.getVpcs().size() == 0) return null;
+        for(Vpc vpc : result.getVpcs()) {
+            if(vpc.getIsDefault()) return vpc;
+        }
+        return null;
+    }
+
+    public Vpc getFirstAvailableVPC() {
+        DescribeVpcsResult result = ec2Client.describeVpcs();
+        if(result == null) return null;
+        if(result.getVpcs() == null || result.getVpcs().size() == 0) return null;
+        for(Vpc vpc : result.getVpcs()) {
+            if(vpc.getIsDefault()) return vpc;
+        }
+        return result.getVpcs().get(0);
+    }
+
+    public List<Subnet> getSubnets(String vpcId) {
+        DescribeSubnetsResult result = ec2Client.describeSubnets();
+        if(result == null) return null;
+        if(result.getSubnets() == null || result.getSubnets().size() == 0) return null;
+        List<Subnet> found = new ArrayList<Subnet>();
+        for(Subnet subnet : result.getSubnets()) {
+            if(vpcId.equals(subnet.getVpcId())) {
+                found.add(subnet);
+            }
+        }
+        return found;
     }
 
 }

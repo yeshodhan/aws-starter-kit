@@ -130,13 +130,13 @@ public class EC2Test {
         securityGroupRequest.setGroupName(MY_SECURITY_GROUP);
         securityGroupRequest.setDescription(MY_SECURITY_GROUP_DESC);
         securityGroupRequest.setVpcId(vpcId);
-        CreateSecurityGroupResult createSecurityGroupResult = ec2.createSecurityGroup(securityGroupRequest);
-        if(createSecurityGroupResult == null) return null;
-        Thread.sleep(5000);
-        return ec2.getSecurityGroup(createSecurityGroupResult.getGroupId());
+        String groupId = ec2.createSecurityGroup(securityGroupRequest);
+        if(groupId == null) return null;
+        Thread.sleep(2000);
+        return ec2.getSecurityGroupById(groupId);
     }
 
-    private KeyPairInfo createKeyPair() throws IOException {
+    private KeyPairInfo createKeyPair() {
         KeyPairInfo keyPairInfo = ec2.getKeyPairInfo(MY_KEY_PAIR);
         if(keyPairInfo == null) {
             KeyPair keyPair = ec2.createKeyPair(MY_KEY_PAIR);
@@ -145,10 +145,8 @@ public class EC2Test {
                 FileUtils.write(new File("~/.ssh/" + MY_KEY_PAIR + ".pem"), keyPair.getKeyMaterial());
             } catch (Exception e){
                 logger.log(Level.SEVERE, e.getMessage(), e);
+                logger.info(keyPair.getKeyMaterial());
             }
-            logger.info("New Key Pair Created: " + keyPair.getKeyFingerprint());
-            logger.info("PEM: ");
-            logger.info(keyPair.getKeyMaterial());
             keyPairInfo = ec2.getKeyPairInfo(MY_KEY_PAIR);
         }
         return keyPairInfo;

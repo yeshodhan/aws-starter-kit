@@ -9,6 +9,7 @@ import com.amazonaws.services.ec2.util.SecurityGroupUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -145,8 +146,10 @@ public class EC2 {
     }
 
     //create security group
-    public CreateSecurityGroupResult createSecurityGroup(CreateSecurityGroupRequest securityGroupRequest) {
-        return ec2Client.createSecurityGroup(securityGroupRequest);
+    public String createSecurityGroup(CreateSecurityGroupRequest securityGroupRequest) {
+        CreateSecurityGroupResult result = ec2Client.createSecurityGroup(securityGroupRequest);
+        logger.info("Security Group Created: " + result.getGroupId());
+        return result.getGroupId();
     }
 
     public boolean doesSecurityGroupExist(String securityGroupId) {
@@ -157,7 +160,9 @@ public class EC2 {
         CreateKeyPairRequest createKeyPairRequest = new CreateKeyPairRequest();
         createKeyPairRequest.setKeyName(name);
         CreateKeyPairResult createKeyPairResult = ec2Client.createKeyPair(createKeyPairRequest);
-        return createKeyPairResult.getKeyPair();
+        KeyPair keyPair = createKeyPairResult.getKeyPair();
+        logger.info("Key Pair: " + name + " created. Fingerprint: " + keyPair.getKeyFingerprint());
+        return keyPair;
     }
 
     public KeyPairInfo getKeyPairInfo(String keyName) {
@@ -188,6 +193,23 @@ public class EC2 {
             }
         }
         return null;
+    }
+
+    public SecurityGroup getSecurityGroupById(String securityGroupId) {
+        DescribeSecurityGroupsRequest describeSecurityGroupsRequest = new DescribeSecurityGroupsRequest();
+        List<String> groupIds = new ArrayList<String>();
+        groupIds.add(securityGroupId);
+        describeSecurityGroupsRequest.setGroupIds(groupIds);
+        DescribeSecurityGroupsResult describeSecurityGroupsResult = null;
+        try {
+            describeSecurityGroupsResult = ec2Client.describeSecurityGroups(describeSecurityGroupsRequest);
+        } catch (Exception e){
+            logger.log(Level.SEVERE, "Security Group: " + securityGroupId + " not found - " + e.getMessage());
+            return null;
+        }
+        if(describeSecurityGroupsResult == null) return null;
+        if(describeSecurityGroupsResult.getSecurityGroups() == null || describeSecurityGroupsResult.getSecurityGroups().size() == 0) return null;
+        return describeSecurityGroupsResult.getSecurityGroups().get(0);
     }
 
     //add an inbound rule to security group

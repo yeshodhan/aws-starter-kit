@@ -1,6 +1,17 @@
 # AWS Starter Kit
 Starter Kit demonstrating how to get started with AWS Java SDK
 
+## Installation
+
+Clone the repository. Open terminal. Change directory to <PROJECT_ROOT>, and run the below:
+
+```bash
+cd <PROJECT_ROOT>
+mvn clean install
+```
+
+Test run will fail, if aws credentials are not configured.
+
 
 ## Test Run
 If you have configured the the AWS credentials in ~/.aws/credentials, the test run will use them.
